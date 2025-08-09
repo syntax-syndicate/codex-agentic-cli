@@ -684,3 +684,169 @@ async fn vt100_replay_longer_hello_session_from_log() {
         }
     }
 }
+
+// Replay the binary size session and ensure the final assistant message is fully present
+// and that a 'codex' header is emitted for the finalized agent_message.
+#[tokio::test(flavor = "current_thread")]
+async fn vt100_replay_binary_size_session_from_log() {
+    let width: u16 = 120;
+    let height: u16 = 1000;
+    let viewport = Rect::new(0, height - 1, width, 1);
+    let backend = TestBackend::new(width, height);
+    let mut terminal = crate::custom_terminal::Terminal::with_options(backend)
+        .expect("failed to construct terminal");
+    terminal.set_viewport_area(viewport);
+
+    let (tx_raw, rx): (std::sync::mpsc::Sender<AppEvent>, Receiver<AppEvent>) = channel();
+    let app_sender = AppEventSender::new(tx_raw);
+
+    let cfg: Config = Config::load_from_base_config_with_overrides(
+        ConfigToml::default(),
+        ConfigOverrides::default(),
+        std::env::temp_dir(),
+    )
+    .expect("config");
+
+    let mut widget =
+        crate::chatwidget::ChatWidget::new(cfg, app_sender.clone(), None, Vec::new(), false);
+
+    let mut ansi: Vec<u8> = Vec::new();
+
+    let file = open_fixture("binary-size-log.jsonl");
+    let reader = BufReader::new(file);
+
+    let mut current_turn_index: Option<usize> = None;
+    let mut expected_full_answer_per_turn: Vec<Option<String>> = Vec::new();
+    let mut transcript_per_turn: Vec<String> = Vec::new();
+    let mut codex_headers_per_turn: Vec<usize> = Vec::new();
+
+    for line in reader.lines() {
+        let line = line.expect("read line");
+        if line.trim().is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Ok(v): Result<serde_json::Value, _> = serde_json::from_str(&line) else {
+            continue;
+        };
+        let Some(dir) = v.get("dir").and_then(|d| d.as_str()) else {
+            continue;
+        };
+        if dir != "to_tui" { continue; }
+        let Some(kind) = v.get("kind").and_then(|k| k.as_str()) else { continue; };
+        match kind {
+            "codex_event" => {
+                if let Some(payload) = v.get("payload") {
+                    let ev: CodexEvent = serde_json::from_value(payload.clone()).expect("parse");
+                    if let CodexEvent { msg, .. } = &ev {
+                        if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
+                            expected_full_answer_per_turn.push(None);
+                            transcript_per_turn.push(String::new());
+                            codex_headers_per_turn.push(0);
+                            current_turn_index = Some(expected_full_answer_per_turn.len() - 1);
+                        }
+                        if let codex_core::protocol::EventMsg::AgentMessage(m) = msg {
+                            if let Some(idx) = current_turn_index {
+                                expected_full_answer_per_turn[idx] = Some(m.message.clone());
+                            }
+                        }
+                        if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
+                            if let Some(idx) = current_turn_index {
+                                if tc.last_agent_message.is_some() {
+                                    expected_full_answer_per_turn[idx] = tc.last_agent_message.clone();
+                                }
+                            }
+                        }
+                    }
+                    widget.handle_codex_event(ev);
+                    while let Ok(app_ev) = rx.try_recv() {
+                        if let AppEvent::InsertHistory(lines) = app_ev {
+                            if let Some(idx) = current_turn_index {
+                                let texts = crate::test_utils::lines_to_plain_strings(&lines);
+                                let turn_count = texts.iter().filter(|s| s.as_str() == "codex").count();
+                                codex_headers_per_turn[idx] += turn_count;
+                                crate::test_utils::append_lines_to_transcript(&lines, &mut transcript_per_turn[idx]);
+                            }
+                            crate::insert_history::insert_history_lines_to_writer(&mut terminal, &mut ansi, lines);
+                        }
+                    }
+                }
+            }
+            "app_event" => {
+                if let Some(variant) = v.get("variant").and_then(|s| s.as_str()) {
+                    if variant == "CommitTick" {
+                        widget.on_commit_tick();
+                        while let Ok(app_ev) = rx.try_recv() {
+                            if let AppEvent::InsertHistory(lines) = app_ev {
+                                if let Some(idx) = current_turn_index {
+                                    let texts = crate::test_utils::lines_to_plain_strings(&lines);
+                                    let turn_count = texts.iter().filter(|s| s.as_str() == "codex").count();
+                                    codex_headers_per_turn[idx] += turn_count;
+                                    crate::test_utils::append_lines_to_transcript(
+                                        &lines,
+                                        &mut transcript_per_turn[idx],
+                                    );
+                                }
+                                crate::insert_history::insert_history_lines_to_writer(
+                                    &mut terminal,
+                                    &mut ansi,
+                                    lines,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // We expect at least one turn; check the last one for the size summary.
+    assert!(
+        !expected_full_answer_per_turn.is_empty(),
+        "expected at least one turn"
+    );
+    let last_idx = expected_full_answer_per_turn.len() - 1;
+
+    // Normalize curly quotes in the transcript and expected phrase.
+    let transcript_norm = normalize_text(&transcript_per_turn[last_idx]);
+    let expected_phrase = normalize_text(
+        "Here’s what’s driving size in this workspace’s binaries.",
+    );
+    assert!(
+        transcript_norm.contains(&expected_phrase),
+        "final transcript missing expected size summary phrase.\ntranscript: {}",
+        transcript_per_turn[last_idx]
+    );
+
+    // Also verify the phrase appears on the final visible screen state.
+    let mut parser = vt100::Parser::new(height, width, 0);
+    parser.process(&ansi);
+    let mut visible = String::new();
+    for row in 0..height {
+        for col in 0..width {
+            if let Some(cell) = parser.screen().cell(row, col) {
+                if let Some(ch) = cell.contents().chars().next() {
+                    visible.push(ch);
+                } else {
+                    visible.push(' ');
+                }
+            } else {
+                visible.push(' ');
+            }
+        }
+        visible.push('\n');
+    }
+    let visible_norm = normalize_text(&visible);
+    assert!(
+        visible_norm.contains(&expected_phrase),
+        "final screen missing expected size summary phrase.\nvisible:\n{}",
+        visible
+    );
+
+    // Ensure we emitted a 'codex' header during that turn.
+    assert!(
+        codex_headers_per_turn[last_idx] >= 1,
+        "missing 'codex' header in final turn; counts = {:?}",
+        codex_headers_per_turn
+    );
+}

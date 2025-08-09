@@ -27,11 +27,6 @@ impl MarkdownStreamCollector {
         self.committed_line_count = 0;
     }
 
-    /// Returns the number of rendered logical lines that were previously committed.
-    pub fn committed_count(&self) -> usize {
-        self.committed_line_count
-    }
-
     /// Replace the buffered content and mark that the first `committed_count`
     /// logical lines are already committed.
     pub fn replace_with_and_mark_committed(&mut self, s: &str, committed_count: usize) {
@@ -230,10 +225,6 @@ impl AnimatedLineStreamer {
 
     pub fn is_idle(&self) -> bool {
         self.queue.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.queue.len()
     }
 }
 

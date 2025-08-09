@@ -253,21 +253,6 @@ impl StreamController {
         false
     }
 
-    fn compute_remaining_final_lines_for_kind(
-        &self,
-        kind: StreamKind,
-        rendered_final: &[Line<'static>],
-    ) -> Lines {
-        let committed = self.state(kind).collector.committed_count();
-        let queued = self.state(kind).len();
-        let already_inserted = committed.saturating_sub(queued);
-        if already_inserted >= rendered_final.len() {
-            Vec::new()
-        } else {
-            rendered_final[already_inserted..].to_vec()
-        }
-    }
-
     /// Apply a full final answer: replace queued content with only the remaining tail,
     /// then finalize immediately and notify completion.
     pub(crate) fn apply_final_answer(&mut self, message: &str, sink: &impl HistorySink) -> bool {
@@ -279,12 +264,10 @@ impl StreamController {
                 msg_with_nl.push('\n');
             }
             crate::markdown::append_markdown(&msg_with_nl, &mut rendered_final, &self.config);
-            let remaining =
-                self.compute_remaining_final_lines_for_kind(StreamKind::Answer, &rendered_final);
             let state = self.state_mut(StreamKind::Answer);
             state.streamer.clear();
-            if !remaining.is_empty() {
-                state.enqueue(remaining);
+            if !rendered_final.is_empty() {
+                state.enqueue(rendered_final.clone());
             }
             state
                 .collector

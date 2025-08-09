@@ -36,9 +36,6 @@ impl StreamState {
     pub(crate) fn enqueue(&mut self, lines: Vec<ratatui::text::Line<'static>>) {
         self.streamer.enqueue(lines)
     }
-    pub(crate) fn len(&self) -> usize {
-        self.streamer.len()
-    }
 }
 
 pub(crate) struct HeaderEmitter {
@@ -95,10 +92,14 @@ impl HeaderEmitter {
                 StreamKind::Reasoning => {
                     self.reasoning_emitted_in_stream = true;
                     self.reasoning_emitted_this_turn = true;
+                    // Reset opposite header so it may be emitted again this turn
+                    self.answer_emitted_this_turn = false;
                 }
                 StreamKind::Answer => {
                     self.answer_emitted_in_stream = true;
                     self.answer_emitted_this_turn = true;
+                    // Reset opposite header so it may be emitted again this turn
+                    self.reasoning_emitted_this_turn = false;
                 }
             }
             true
