@@ -256,9 +256,11 @@ impl App<'_> {
                             kind: KeyEventKind::Press,
                             ..
                         } => {
-                            if let AppState::Chat { widget } = &mut self.app_state {
-                                widget.on_ctrl_z();
+                            #[cfg(unix)]
+                            {
+                                self.suspend(terminal)?;
                             }
+                            // No-op on non-Unix platforms.
                         }
                         KeyEvent {
                             code: KeyCode::Char('d'),
@@ -451,6 +453,18 @@ impl App<'_> {
         }
         terminal.clear()?;
 
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn suspend(&mut self, terminal: &mut tui::Tui) -> Result<()> {
+        tui::restore()?;
+        unsafe {
+            libc::kill(0, libc::SIGTSTP);
+        }
+        *terminal = tui::init(&self.config)?;
+        terminal.clear()?;
+        self.app_event_tx.send(AppEvent::RequestRedraw);
         Ok(())
     }
 
