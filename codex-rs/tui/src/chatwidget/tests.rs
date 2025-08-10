@@ -654,8 +654,5 @@ fn multiple_agent_messages_in_single_turn_emit_multiple_headers() {
     );
     let first_idx = combined.find("First message").unwrap();
     let second_idx = combined.find("Second message").unwrap();
-    assert!(
-        first_idx < second_idx,
-        "messages out of order: {combined}"
-    );
+    assert!(first_idx < second_idx, "messages out of order: {combined}");
 }

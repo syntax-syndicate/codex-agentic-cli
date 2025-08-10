@@ -870,3 +870,153 @@ async fn vt100_replay_binary_size_session_from_log() {
         codex_headers_per_turn
     );
 }
+
+// Replay the OSS hello session which streams agent_reasoning_raw_content_delta chunks
+#[tokio::test(flavor = "current_thread")]
+async fn vt100_replay_oss_hello_session_from_log() {
+    let width: u16 = 90;
+    let height: u16 = 2000; // large so earlier reasoning remains on-screen
+    let viewport = Rect::new(0, height - 1, width, 1);
+    let backend = TestBackend::new(width, height);
+    let mut terminal = crate::custom_terminal::Terminal::with_options(backend)
+        .expect("failed to construct terminal");
+    terminal.set_viewport_area(viewport);
+
+    let (tx_raw, rx): (std::sync::mpsc::Sender<AppEvent>, Receiver<AppEvent>) = channel();
+    let app_sender = AppEventSender::new(tx_raw);
+
+    let cfg: Config = Config::load_from_base_config_with_overrides(
+        ConfigToml::default(),
+        ConfigOverrides::default(),
+        std::env::temp_dir(),
+    )
+    .expect("config");
+
+    let mut widget =
+        crate::chatwidget::ChatWidget::new(cfg, app_sender.clone(), None, Vec::new(), false);
+
+    let mut ansi: Vec<u8> = Vec::new();
+
+    let file = open_fixture("oss-hello.jsonl");
+    let reader = BufReader::new(file);
+
+    let mut current_turn_index: Option<usize> = None;
+    let mut transcript_per_turn: Vec<String> = Vec::new();
+
+    for line in reader.lines() {
+        let line = line.expect("read line");
+        if line.trim().is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Ok(v): Result<serde_json::Value, _> = serde_json::from_str(&line) else {
+            continue;
+        };
+        let Some(dir) = v.get("dir").and_then(|d| d.as_str()) else {
+            continue;
+        };
+        if dir != "to_tui" {
+            continue;
+        }
+        let Some(kind) = v.get("kind").and_then(|k| k.as_str()) else {
+            continue;
+        };
+        match kind {
+            "codex_event" => {
+                if let Some(payload) = v.get("payload") {
+                    let ev: CodexEvent = serde_json::from_value(payload.clone()).expect("parse");
+                    let CodexEvent { msg, .. } = &ev;
+                    if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
+                        transcript_per_turn.push(String::new());
+                        current_turn_index = Some(transcript_per_turn.len() - 1);
+                    }
+                    widget.handle_codex_event(ev);
+                    while let Ok(app_ev) = rx.try_recv() {
+                        if let AppEvent::InsertHistory(lines) = app_ev {
+                            if let Some(idx) = current_turn_index {
+                                crate::test_utils::append_lines_to_transcript(
+                                    &lines,
+                                    &mut transcript_per_turn[idx],
+                                );
+                            }
+                            crate::insert_history::insert_history_lines_to_writer(
+                                &mut terminal,
+                                &mut ansi,
+                                lines,
+                            );
+                        }
+                    }
+                }
+            }
+            "app_event" => {
+                if let Some(variant) = v.get("variant").and_then(|s| s.as_str()) {
+                    if variant == "CommitTick" {
+                        widget.on_commit_tick();
+                        while let Ok(app_ev) = rx.try_recv() {
+                            if let AppEvent::InsertHistory(lines) = app_ev {
+                                if let Some(idx) = current_turn_index {
+                                    crate::test_utils::append_lines_to_transcript(
+                                        &lines,
+                                        &mut transcript_per_turn[idx],
+                                    );
+                                }
+                                crate::insert_history::insert_history_lines_to_writer(
+                                    &mut terminal,
+                                    &mut ansi,
+                                    lines,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Ensure we captured at least one turn
+    assert!(
+        !transcript_per_turn.is_empty(),
+        "expected at least one turn's transcript",
+    );
+
+    // The OSS log's reasoning stream should contain this phrase once aggregated.
+    // Intentionally checking the exact phrase (with spelling as provided) to catch
+    // any aggregation/ordering bugs in reasoning content handling.
+    let needles = [
+        "They probably just want a response",
+        "They probaly just want a response",
+        "They probbaly just want a response",
+    ];
+    let full_transcript: String = transcript_per_turn.join("\n---\n");
+    assert!(
+        needles.iter().any(|n| full_transcript.contains(n)),
+        "missing expected reasoning phrase in transcript.\nneedles: {:?}\ntranscript: {}",
+        needles,
+        full_transcript
+    );
+
+    // Also verify it is present on the final rendered screen state.
+    let mut parser = vt100::Parser::new(height, width, 0);
+    parser.process(&ansi);
+    let mut visible = String::new();
+    for row in 0..height {
+        for col in 0..width {
+            if let Some(cell) = parser.screen().cell(row, col) {
+                if let Some(ch) = cell.contents().chars().next() {
+                    visible.push(ch);
+                } else {
+                    visible.push(' ');
+                }
+            } else {
+                visible.push(' ');
+            }
+        }
+        visible.push('\n');
+    }
+    assert!(
+        needles.iter().any(|n| visible.contains(n)),
+        "missing expected reasoning phrase on screen.\nneedles: {:?}\nvisible:\n{}",
+        needles,
+        visible
+    );
+}

@@ -156,13 +156,19 @@ impl ChatWidget<'_> {
     }
 
     fn on_task_complete(&mut self) {
-        let streaming_active = self.stream.is_streaming_active();
-        if streaming_active {
-            self.task_complete_pending = true;
-        } else {
-            self.bottom_pane.set_task_running(false);
-            self.mark_needs_redraw();
-        }
+        // Always flush any buffered reasoning/answer content so thinking blocks are not empty
+        // at the end of a turn even if no trailing newline was streamed or streaming is idle.
+        let sink = AppEventHistorySink(self.app_event_tx.clone());
+        // Finalize reasoning first to preserve intuitive header ordering.
+        self.stream.begin(StreamKind::Reasoning, &sink);
+        let _ = self.stream.finalize(StreamKind::Reasoning, true, &sink);
+        // Then finalize any remaining answer content.
+        self.stream.begin(StreamKind::Answer, &sink);
+        let _ = self.stream.finalize(StreamKind::Answer, true, &sink);
+
+        // Mark task stopped and request redraw now that all content is in history.
+        self.bottom_pane.set_task_running(false);
+        self.mark_needs_redraw();
     }
 
     fn on_token_count(&mut self, token_usage: TokenUsage) {
@@ -332,7 +338,13 @@ impl ChatWidget<'_> {
         let sink = AppEventHistorySink(self.app_event_tx.clone());
         self.set_waiting_for_model_status();
         self.stream.begin(kind, &sink);
+        let is_reasoning = matches!(kind, StreamKind::Reasoning);
         self.stream.push_and_maybe_commit(&delta, &sink);
+        // For raw reasoning content, commit at sentence boundaries so content is visible
+        // during streaming even if no explicit newline is sent by the provider.
+        if is_reasoning && (delta.contains('.') || delta.contains('!') || delta.contains('?')) {
+            self.stream.push_and_maybe_commit("\n", &sink);
+        }
         self.mark_needs_redraw();
     }
 

@@ -60,13 +60,6 @@ impl StreamController {
         self.current_stream.is_some()
     }
 
-    pub(crate) fn is_streaming_active(&self) -> bool {
-        match self.current_stream {
-            Some(kind) => !self.state(kind).is_idle(),
-            None => false,
-        }
-    }
-
     pub(crate) fn clear_all(&mut self) {
         self.states.iter_mut().for_each(|s| s.clear());
         self.current_stream = None;
