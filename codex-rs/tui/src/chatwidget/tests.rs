@@ -589,30 +589,38 @@ fn headers_emitted_on_stream_begin_for_answer_and_reasoning() {
     );
 }
 
-
 #[test]
 fn multiple_agent_messages_in_single_turn_emit_multiple_headers() {
     let (mut chat, rx, _op_rx) = make_chatwidget_manual();
 
     // Begin turn
-    chat.handle_codex_event(Event { id: "s1".into(), msg: EventMsg::TaskStarted });
+    chat.handle_codex_event(Event {
+        id: "s1".into(),
+        msg: EventMsg::TaskStarted,
+    });
 
     // First finalized assistant message
     chat.handle_codex_event(Event {
         id: "s1".into(),
-        msg: EventMsg::AgentMessage(AgentMessageEvent { message: "First message".into() }),
+        msg: EventMsg::AgentMessage(AgentMessageEvent {
+            message: "First message".into(),
+        }),
     });
 
     // Second finalized assistant message in the same turn
     chat.handle_codex_event(Event {
         id: "s1".into(),
-        msg: EventMsg::AgentMessage(AgentMessageEvent { message: "Second message".into() }),
+        msg: EventMsg::AgentMessage(AgentMessageEvent {
+            message: "Second message".into(),
+        }),
     });
 
     // End turn
     chat.handle_codex_event(Event {
         id: "s1".into(),
-        msg: EventMsg::TaskComplete(TaskCompleteEvent { last_agent_message: None }),
+        msg: EventMsg::TaskComplete(TaskCompleteEvent {
+            last_agent_message: None,
+        }),
     });
 
     let cells = drain_insert_history(&rx);
@@ -631,15 +639,23 @@ fn multiple_agent_messages_in_single_turn_emit_multiple_headers() {
         }
     }
     assert_eq!(
-        header_count, 2,
+        header_count,
+        2,
         "expected two 'codex' headers for two AgentMessage events in one turn; cells={:?}",
         cells.len()
     );
-    assert!(combined.contains("First message"), "missing first message: {}", combined);
-    assert!(combined.contains("Second message"), "missing second message: {}", combined);
+    assert!(
+        combined.contains("First message"),
+        "missing first message: {combined}"
+    );
+    assert!(
+        combined.contains("Second message"),
+        "missing second message: {combined}"
+    );
     let first_idx = combined.find("First message").unwrap();
     let second_idx = combined.find("Second message").unwrap();
-    assert!(first_idx < second_idx, "messages out of order: {}", combined);
+    assert!(
+        first_idx < second_idx,
+        "messages out of order: {combined}"
+    );
 }
-
-
