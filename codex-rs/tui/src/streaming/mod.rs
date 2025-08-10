@@ -76,6 +76,18 @@ impl HeaderEmitter {
         }
     }
 
+    /// Allow emitting the header again for the same kind within the current turn.
+    ///
+    /// This is used when a stream (e.g., Answer) is finalized and a subsequent
+    /// block of the same kind is started within the same turn. Without this,
+    /// only the first block would render a header.
+    pub(crate) fn allow_reemit_for_same_kind_in_turn(&mut self, kind: StreamKind) {
+        match kind {
+            StreamKind::Reasoning => self.reasoning_emitted_this_turn = false,
+            StreamKind::Answer => self.answer_emitted_this_turn = false,
+        }
+    }
+
     pub(crate) fn maybe_emit(
         &mut self,
         kind: StreamKind,

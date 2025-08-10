@@ -127,6 +127,7 @@ impl ChatWidget<'_> {
 
     fn on_agent_message_delta(&mut self, delta: String) {
         self.handle_streaming_delta(StreamKind::Answer, delta);
+        
     }
 
     fn on_agent_reasoning_delta(&mut self, delta: String) {

@@ -10,11 +10,15 @@ use codex_core::plan_tool::PlanItemArg;
 use codex_core::plan_tool::StepStatus;
 use codex_core::plan_tool::UpdatePlanArgs;
 use codex_core::protocol::AgentMessageDeltaEvent;
+use codex_core::protocol::AgentMessageEvent;
 use codex_core::protocol::AgentReasoningDeltaEvent;
 use codex_core::protocol::ApplyPatchApprovalRequestEvent;
+use codex_core::protocol::Event;
+use codex_core::protocol::EventMsg;
 use codex_core::protocol::FileChange;
 use codex_core::protocol::PatchApplyBeginEvent;
 use codex_core::protocol::PatchApplyEndEvent;
+use codex_core::protocol::TaskCompleteEvent;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyModifiers;
@@ -583,6 +587,59 @@ fn headers_emitted_on_stream_begin_for_answer_and_reasoning() {
         saw_thinking,
         "expected 'thinking' header to be emitted at stream start"
     );
+}
+
+
+#[test]
+fn multiple_agent_messages_in_single_turn_emit_multiple_headers() {
+    let (mut chat, rx, _op_rx) = make_chatwidget_manual();
+
+    // Begin turn
+    chat.handle_codex_event(Event { id: "s1".into(), msg: EventMsg::TaskStarted });
+
+    // First finalized assistant message
+    chat.handle_codex_event(Event {
+        id: "s1".into(),
+        msg: EventMsg::AgentMessage(AgentMessageEvent { message: "First message".into() }),
+    });
+
+    // Second finalized assistant message in the same turn
+    chat.handle_codex_event(Event {
+        id: "s1".into(),
+        msg: EventMsg::AgentMessage(AgentMessageEvent { message: "Second message".into() }),
+    });
+
+    // End turn
+    chat.handle_codex_event(Event {
+        id: "s1".into(),
+        msg: EventMsg::TaskComplete(TaskCompleteEvent { last_agent_message: None }),
+    });
+
+    let cells = drain_insert_history(&rx);
+    let mut header_count = 0usize;
+    let mut combined = String::new();
+    for lines in &cells {
+        for l in lines {
+            for sp in &l.spans {
+                let s = &sp.content;
+                if s == "codex" {
+                    header_count += 1;
+                }
+                combined.push_str(s);
+            }
+            combined.push('\n');
+        }
+    }
+    assert_eq!(
+        header_count, 2,
+        "expected two 'codex' headers for two AgentMessage events in one turn; cells={:?}",
+        cells.len()
+    );
+    assert!(combined.contains("First message"), "missing first message: {}", combined);
+    assert!(combined.contains("Second message"), "missing second message: {}", combined);
+    let first_idx = combined.find("First message").unwrap();
+    let second_idx = combined.find("Second message").unwrap();
+    assert!(first_idx < second_idx, "messages out of order: {}", combined);
 }
 
 

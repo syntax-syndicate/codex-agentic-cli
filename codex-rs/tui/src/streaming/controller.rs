@@ -113,7 +113,7 @@ impl StreamController {
                     prev_state.enqueue(newly_completed);
                 }
                 let step = prev_state.drain_all();
-                if !step.history.is_empty() || !self.header.has_emitted_for_stream(current) {
+                if !step.history.is_empty() {
                     let mut lines: Lines = Vec::new();
                     self.emit_header_if_needed(current, &mut lines);
                     lines.extend(step.history);
@@ -128,6 +128,8 @@ impl StreamController {
         if self.current_stream != Some(kind) {
             let prev = self.current_stream;
             self.current_stream = Some(kind);
+            // Starting a new stream cancels any pending finish-from-previous-stream animation.
+            self.finishing_after_drain = false;
             if prev.is_some() {
                 self.header.reset_for_stream(kind);
             }
@@ -149,6 +151,9 @@ impl StreamController {
         let cfg = self.config.clone();
         let state = self.state_mut(kind);
         state.collector.push_delta(delta);
+        if delta.contains( "Here") {
+            println!("push_and_maybe_commit: delta={delta}");
+        }
         if delta.contains('\n') {
             let newly_completed = state.collector.commit_complete_lines(&cfg);
             if !newly_completed.is_empty() {
@@ -205,6 +210,10 @@ impl StreamController {
 
             // Cleanup
             self.state_mut(kind).clear();
+            // Allow a subsequent block of the same kind in this turn to emit its header.
+            self.header.allow_reemit_for_same_kind_in_turn(kind);
+            // Also clear the per-stream emitted flag so the header can render again.
+            self.header.reset_for_stream(kind);
             self.current_stream = None;
             self.finishing_after_drain = false;
             true
@@ -226,14 +235,13 @@ impl StreamController {
         let Some(kind) = self.current_stream else {
             return false;
         };
-        let mut lines: Lines = Vec::new();
-        self.emit_header_if_needed(kind, &mut lines);
-
         let step = {
             let state = self.state_mut(kind);
             state.step()
         };
-        if !step.history.is_empty() || !lines.is_empty() {
+        if !step.history.is_empty() {
+            let mut lines: Lines = Vec::new();
+            self.emit_header_if_needed(kind, &mut lines);
             let mut out = lines;
             out.extend(step.history);
             sink.insert_history(out);
@@ -245,6 +253,10 @@ impl StreamController {
             if self.finishing_after_drain {
                 // Reset and notify
                 self.state_mut(kind).clear();
+                // Allow a subsequent block of the same kind in this turn to emit its header.
+                self.header.allow_reemit_for_same_kind_in_turn(kind);
+                // Also clear the per-stream emitted flag so the header can render again.
+                self.header.reset_for_stream(kind);
                 self.current_stream = None;
                 self.finishing_after_drain = false;
                 return true;
@@ -258,20 +270,16 @@ impl StreamController {
     pub(crate) fn apply_final_answer(&mut self, message: &str, sink: &impl HistorySink) -> bool {
         self.begin(StreamKind::Answer, sink);
         if !message.is_empty() {
-            let mut rendered_final: Lines = Vec::new();
             let mut msg_with_nl = message.to_string();
             if !msg_with_nl.ends_with('\n') {
                 msg_with_nl.push('\n');
             }
-            crate::markdown::append_markdown(&msg_with_nl, &mut rendered_final, &self.config);
             let state = self.state_mut(StreamKind::Answer);
-            state.streamer.clear();
-            if !rendered_final.is_empty() {
-                state.enqueue(rendered_final.clone());
-            }
+            let already_committed = state.collector.committed_count();
+            // Preserve previously committed count so finalize emits only the remaining tail.
             state
                 .collector
-                .replace_with_and_mark_committed(&msg_with_nl, rendered_final.len());
+                .replace_with_and_mark_committed(&msg_with_nl, already_committed);
         }
         self.finalize(StreamKind::Answer, true, sink)
     }

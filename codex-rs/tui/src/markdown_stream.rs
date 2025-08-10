@@ -22,6 +22,12 @@ impl MarkdownStreamCollector {
         }
     }
 
+    /// Returns the number of logical lines that have already been committed
+    /// (i.e., previously returned from `commit_complete_lines`).
+    pub fn committed_count(&self) -> usize {
+        self.committed_line_count
+    }
+
     pub fn clear(&mut self) {
         self.buffer.clear();
         self.committed_line_count = 0;
