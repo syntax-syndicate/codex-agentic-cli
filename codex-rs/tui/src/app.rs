@@ -459,9 +459,13 @@ impl App<'_> {
     #[cfg(unix)]
     fn suspend(&mut self, terminal: &mut tui::Tui) -> Result<()> {
         tui::restore()?;
-        unsafe {
-            libc::kill(0, libc::SIGTSTP);
-        }
+        // SAFETY: Unix-only code path. We intentionally send SIGTSTP to the
+        // current process group (pid 0) to trigger standard job-control
+        // suspension semantics. This FFI does not involve any raw pointers,
+        // is not called from a signal handler, and uses a constant signal.
+        // Errors from kill are acceptable (e.g., if already stopped) — the
+        // subsequent re-init path will still leave the terminal in a good state.
+        unsafe { libc::kill(0, libc::SIGTSTP) };
         *terminal = tui::init(&self.config)?;
         terminal.clear()?;
         self.app_event_tx.send(AppEvent::RequestRedraw);
