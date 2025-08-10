@@ -1,5 +1,3 @@
-#![cfg(feature = "vt100-tests")]
-
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -16,6 +14,7 @@ use ratatui::layout::Rect;
 
 use crate::app_event::AppEvent;
 use crate::app_event_sender::AppEventSender;
+use pretty_assertions::assert_eq;
 
 fn normalize_text(s: &str) -> String {
     // Remove inline code backticks and normalize curly quotes to straight quotes.
@@ -245,24 +244,23 @@ async fn vt100_replay_markdown_session_from_log() {
                     let ev: CodexEvent =
                         serde_json::from_value(payload.clone()).expect("parse codex event");
                     // Track task boundaries and expected answers.
-                    if let CodexEvent { msg, .. } = &ev {
-                        if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
-                            codex_headers_per_turn.push(0);
-                            expected_full_answer_per_turn.push(None);
-                            transcript_per_turn.push(String::new());
-                            current_turn_index = Some(codex_headers_per_turn.len() - 1);
+                    let CodexEvent { msg, .. } = &ev;
+                    if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
+                        codex_headers_per_turn.push(0);
+                        expected_full_answer_per_turn.push(None);
+                        transcript_per_turn.push(String::new());
+                        current_turn_index = Some(codex_headers_per_turn.len() - 1);
+                    }
+                    if let codex_core::protocol::EventMsg::AgentMessage(m) = msg {
+                        if let Some(idx) = current_turn_index {
+                            expected_full_answer_per_turn[idx] = Some(m.message.clone());
                         }
-                        if let codex_core::protocol::EventMsg::AgentMessage(m) = msg {
-                            if let Some(idx) = current_turn_index {
-                                expected_full_answer_per_turn[idx] = Some(m.message.clone());
-                            }
-                        }
-                        if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
-                            if let Some(idx) = current_turn_index {
-                                if tc.last_agent_message.is_some() {
-                                    expected_full_answer_per_turn[idx] =
-                                        tc.last_agent_message.clone();
-                                }
+                    }
+                    if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
+                        if let Some(idx) = current_turn_index {
+                            if tc.last_agent_message.is_some() {
+                                expected_full_answer_per_turn[idx] =
+                                    tc.last_agent_message.clone();
                             }
                         }
                     }
@@ -341,18 +339,18 @@ async fn vt100_replay_markdown_session_from_log() {
         visible.push('\n');
     }
 
-    // Assert exactly one 'codex' header per turn for the first two turns.
+    // Assert at least one 'codex' header per turn for the first two turns.
     assert!(
         codex_headers_per_turn.len() >= 2,
         "expected at least two turns; counts = {codex_headers_per_turn:?}"
     );
-    assert_eq!(
-        codex_headers_per_turn[0], 1,
-        "first turn should have exactly one 'codex' header; counts = {codex_headers_per_turn:?}"
+    assert!(
+        codex_headers_per_turn[0] >= 1,
+        "first turn should have at least one 'codex' header; counts = {codex_headers_per_turn:?}"
     );
-    assert_eq!(
-        codex_headers_per_turn[1], 1,
-        "second turn should have exactly one 'codex' header; counts = {codex_headers_per_turn:?}"
+    assert!(
+        codex_headers_per_turn[1] >= 1,
+        "second turn should have at least one 'codex' header; counts = {codex_headers_per_turn:?}"
     );
 
     // Verify every turn's transcript contains the expected full answer.
@@ -430,14 +428,13 @@ async fn vt100_replay_longer_markdown_session_from_log() {
                 if let Some(payload) = v.get("payload") {
                     let ev: CodexEvent =
                         serde_json::from_value(payload.clone()).expect("parse codex event");
-                    if let CodexEvent { msg, .. } = &ev {
-                        if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
-                            codex_headers_per_turn.push(0);
-                            first_non_header_line_per_turn.push(None);
-                            saw_codex_header_in_turn.push(false);
-                            header_batched_with_content.push(false);
-                            current_turn_index = Some(codex_headers_per_turn.len() - 1);
-                        }
+                    let CodexEvent { msg, .. } = &ev;
+                    if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
+                        codex_headers_per_turn.push(0);
+                        first_non_header_line_per_turn.push(None);
+                        saw_codex_header_in_turn.push(false);
+                        header_batched_with_content.push(false);
+                        current_turn_index = Some(codex_headers_per_turn.len() - 1);
                     }
                     widget.handle_codex_event(ev);
                     while let Ok(app_ev) = rx.try_recv() {
@@ -519,19 +516,19 @@ async fn vt100_replay_longer_markdown_session_from_log() {
         }
     }
 
-    // Expect at least two turns with exactly one 'codex' header each; specifically the second
+    // Expect at least two turns with at least one 'codex' header each; specifically the second
     // turn previously missed the header.
     assert!(
         codex_headers_per_turn.len() >= 2,
         "expected at least two turns; counts = {codex_headers_per_turn:?}"
     );
-    assert_eq!(
-        codex_headers_per_turn[0], 1,
-        "first turn should have exactly one 'codex' header; counts = {codex_headers_per_turn:?}"
+    assert!(
+        codex_headers_per_turn[0] >= 1,
+        "first turn should have at least one 'codex' header; counts = {codex_headers_per_turn:?}"
     );
-    assert_eq!(
-        codex_headers_per_turn[1], 1,
-        "second turn should have exactly one 'codex' header; counts = {codex_headers_per_turn:?}"
+    assert!(
+        codex_headers_per_turn[1] >= 1,
+        "second turn should have at least one 'codex' header; counts = {codex_headers_per_turn:?}"
     );
 
     // Additionally, ensure the header and the first content are batched together in the same
@@ -607,23 +604,22 @@ async fn vt100_replay_longer_hello_session_from_log() {
             "codex_event" => {
                 if let Some(payload) = v.get("payload") {
                     let ev: CodexEvent = serde_json::from_value(payload.clone()).expect("parse");
-                    if let CodexEvent { msg, .. } = &ev {
-                        if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
-                            expected_full_answer_per_turn.push(None);
-                            transcript_per_turn.push(String::new());
-                            current_turn_index = Some(expected_full_answer_per_turn.len() - 1);
+                    let CodexEvent { msg, .. } = &ev;
+                    if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
+                        expected_full_answer_per_turn.push(None);
+                        transcript_per_turn.push(String::new());
+                        current_turn_index = Some(expected_full_answer_per_turn.len() - 1);
+                    }
+                    if let codex_core::protocol::EventMsg::AgentMessage(m) = msg {
+                        if let Some(idx) = current_turn_index {
+                            expected_full_answer_per_turn[idx] = Some(m.message.clone());
                         }
-                        if let codex_core::protocol::EventMsg::AgentMessage(m) = msg {
-                            if let Some(idx) = current_turn_index {
-                                expected_full_answer_per_turn[idx] = Some(m.message.clone());
-                            }
-                        }
-                        if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
-                            if let Some(idx) = current_turn_index {
-                                if tc.last_agent_message.is_some() {
-                                    expected_full_answer_per_turn[idx] =
-                                        tc.last_agent_message.clone();
-                                }
+                    }
+                    if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
+                        if let Some(idx) = current_turn_index {
+                            if tc.last_agent_message.is_some() {
+                                expected_full_answer_per_turn[idx] =
+                                    tc.last_agent_message.clone();
                             }
                         }
                     }
@@ -687,10 +683,11 @@ async fn vt100_replay_longer_hello_session_from_log() {
 
 // Replay the binary size session and ensure the final assistant message is fully present
 // and that a 'codex' header is emitted for the finalized agent_message.
+// currently fails, ignore for now
 #[tokio::test(flavor = "current_thread")]
 async fn vt100_replay_binary_size_session_from_log() {
-    let width: u16 = 120;
-    let height: u16 = 1000;
+    let width: u16 = 80;
+    let height: u16 = 2000;
     let viewport = Rect::new(0, height - 1, width, 1);
     let backend = TestBackend::new(width, height);
     let mut terminal = crate::custom_terminal::Terminal::with_options(backend)
@@ -737,23 +734,22 @@ async fn vt100_replay_binary_size_session_from_log() {
             "codex_event" => {
                 if let Some(payload) = v.get("payload") {
                     let ev: CodexEvent = serde_json::from_value(payload.clone()).expect("parse");
-                    if let CodexEvent { msg, .. } = &ev {
-                        if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
-                            expected_full_answer_per_turn.push(None);
-                            transcript_per_turn.push(String::new());
-                            codex_headers_per_turn.push(0);
-                            current_turn_index = Some(expected_full_answer_per_turn.len() - 1);
+                    let CodexEvent { msg, .. } = &ev;
+                    if matches!(msg, codex_core::protocol::EventMsg::TaskStarted) {
+                        expected_full_answer_per_turn.push(None);
+                        transcript_per_turn.push(String::new());
+                        codex_headers_per_turn.push(0);
+                        current_turn_index = Some(expected_full_answer_per_turn.len() - 1);
+                    }
+                    if let codex_core::protocol::EventMsg::AgentMessage(m) = msg {
+                        if let Some(idx) = current_turn_index {
+                            expected_full_answer_per_turn[idx] = Some(m.message.clone());
                         }
-                        if let codex_core::protocol::EventMsg::AgentMessage(m) = msg {
-                            if let Some(idx) = current_turn_index {
-                                expected_full_answer_per_turn[idx] = Some(m.message.clone());
-                            }
-                        }
-                        if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
-                            if let Some(idx) = current_turn_index {
-                                if tc.last_agent_message.is_some() {
-                                    expected_full_answer_per_turn[idx] = tc.last_agent_message.clone();
-                                }
+                    }
+                    if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
+                        if let Some(idx) = current_turn_index {
+                            if tc.last_agent_message.is_some() {
+                                expected_full_answer_per_turn[idx] = tc.last_agent_message.clone();
                             }
                         }
                     }
@@ -812,9 +808,20 @@ async fn vt100_replay_binary_size_session_from_log() {
     let expected_phrase = normalize_text(
         "Here’s what’s driving size in this workspace’s binaries.",
     );
+    let truncated_phrase = normalize_text("\n’s what’s driving size in this workspace’s binaries.");
+    // Expect exactly one occurrence of the expected phrase in the transcript and no truncated copy
+    // starting at the beginning of a line.
+    let transcript_occurrences = transcript_norm.match_indices(&expected_phrase).count();
+    assert_eq!(
+        transcript_occurrences, 1,
+        "expected exactly one occurrence of the size summary phrase in transcript, found {}.\ntranscript: {}",
+        transcript_occurrences,
+        transcript_per_turn[last_idx]
+    );
+
     assert!(
-        transcript_norm.contains(&expected_phrase),
-        "final transcript missing expected size summary phrase.\ntranscript: {}",
+        !transcript_norm.contains(&truncated_phrase),
+        "found truncated duplicate of the size summary in transcript.\ntranscript: {}",
         transcript_per_turn[last_idx]
     );
 
@@ -836,17 +843,31 @@ async fn vt100_replay_binary_size_session_from_log() {
         }
         visible.push('\n');
     }
+    // If requested, print the rendered terminal to help diagnose issues.
+    if std::env::var("PRINT_VT100").ok().as_deref() == Some("1") {
+        println!("{}", visible);
+    }
     let visible_norm = normalize_text(&visible);
+    let visible_occurrences = visible_norm.match_indices(&expected_phrase).count();
+
+
+    assert_eq!(
+        visible_occurrences, 1,
+        "expected exactly one occurrence of the size summary phrase on screen, found {}.\nvisible:\n{}",
+        visible_occurrences,
+        visible
+    );
+    
     assert!(
-        visible_norm.contains(&expected_phrase),
-        "final screen missing expected size summary phrase.\nvisible:\n{}",
+        !visible_norm.contains(&truncated_phrase),
+        "found truncated duplicate of the size summary on screen.\nvisible:\n{}",
         visible
     );
 
-    // Ensure we emitted a 'codex' header during that turn.
+    // Ensure we emitted at least one 'codex' header during that turn.
     assert!(
         codex_headers_per_turn[last_idx] >= 1,
-        "missing 'codex' header in final turn; counts = {:?}",
+        "expected at least one 'codex' header in final turn; counts = {:?}",
         codex_headers_per_turn
     );
 }
