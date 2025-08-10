@@ -151,9 +151,6 @@ impl StreamController {
         let cfg = self.config.clone();
         let state = self.state_mut(kind);
         state.collector.push_delta(delta);
-        if delta.contains( "Here") {
-            println!("push_and_maybe_commit: delta={delta}");
-        }
         if delta.contains('\n') {
             let newly_completed = state.collector.commit_complete_lines(&cfg);
             if !newly_completed.is_empty() {

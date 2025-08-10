@@ -259,8 +259,7 @@ async fn vt100_replay_markdown_session_from_log() {
                     if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
                         if let Some(idx) = current_turn_index {
                             if tc.last_agent_message.is_some() {
-                                expected_full_answer_per_turn[idx] =
-                                    tc.last_agent_message.clone();
+                                expected_full_answer_per_turn[idx] = tc.last_agent_message.clone();
                             }
                         }
                     }
@@ -294,12 +293,9 @@ async fn vt100_replay_markdown_session_from_log() {
                         while let Ok(app_ev) = rx.try_recv() {
                             if let AppEvent::InsertHistory(lines) = app_ev {
                                 if let Some(idx) = current_turn_index {
-                                    let texts =
-                                        crate::test_utils::lines_to_plain_strings(&lines);
-                                    let turn_count = texts
-                                        .iter()
-                                        .filter(|s| s.as_str() == "codex")
-                                        .count();
+                                    let texts = crate::test_utils::lines_to_plain_strings(&lines);
+                                    let turn_count =
+                                        texts.iter().filter(|s| s.as_str() == "codex").count();
                                     codex_headers_per_turn[idx] += turn_count;
                                     crate::test_utils::append_lines_to_transcript(
                                         &lines,
@@ -446,11 +442,7 @@ async fn vt100_replay_longer_markdown_session_from_log() {
                                     if s == "codex" {
                                         turn_count += 1;
                                         saw_codex_header_in_turn[idx] = true;
-                                        if texts
-                                            .iter()
-                                            .skip(i + 1)
-                                            .any(|t| !t.trim().is_empty())
-                                        {
+                                        if texts.iter().skip(i + 1).any(|t| !t.trim().is_empty()) {
                                             header_batched_with_content[idx] = true;
                                         }
                                     } else if saw_codex_header_in_turn[idx]
@@ -478,8 +470,7 @@ async fn vt100_replay_longer_markdown_session_from_log() {
                         while let Ok(app_ev) = rx.try_recv() {
                             if let AppEvent::InsertHistory(lines) = app_ev {
                                 if let Some(idx) = current_turn_index {
-                                    let texts =
-                                        crate::test_utils::lines_to_plain_strings(&lines);
+                                    let texts = crate::test_utils::lines_to_plain_strings(&lines);
                                     let mut turn_count = 0usize;
                                     for (i, s) in texts.iter().enumerate() {
                                         if s == "codex" {
@@ -496,8 +487,7 @@ async fn vt100_replay_longer_markdown_session_from_log() {
                                             && !s.trim().is_empty()
                                             && first_non_header_line_per_turn[idx].is_none()
                                         {
-                                            first_non_header_line_per_turn[idx] =
-                                                Some(s.clone());
+                                            first_non_header_line_per_turn[idx] = Some(s.clone());
                                         }
                                     }
                                     codex_headers_per_turn[idx] += turn_count;
@@ -618,8 +608,7 @@ async fn vt100_replay_longer_hello_session_from_log() {
                     if let codex_core::protocol::EventMsg::TaskComplete(tc) = msg {
                         if let Some(idx) = current_turn_index {
                             if tc.last_agent_message.is_some() {
-                                expected_full_answer_per_turn[idx] =
-                                    tc.last_agent_message.clone();
+                                expected_full_answer_per_turn[idx] = tc.last_agent_message.clone();
                             }
                         }
                     }
@@ -728,8 +717,12 @@ async fn vt100_replay_binary_size_session_from_log() {
         let Some(dir) = v.get("dir").and_then(|d| d.as_str()) else {
             continue;
         };
-        if dir != "to_tui" { continue; }
-        let Some(kind) = v.get("kind").and_then(|k| k.as_str()) else { continue; };
+        if dir != "to_tui" {
+            continue;
+        }
+        let Some(kind) = v.get("kind").and_then(|k| k.as_str()) else {
+            continue;
+        };
         match kind {
             "codex_event" => {
                 if let Some(payload) = v.get("payload") {
@@ -758,11 +751,19 @@ async fn vt100_replay_binary_size_session_from_log() {
                         if let AppEvent::InsertHistory(lines) = app_ev {
                             if let Some(idx) = current_turn_index {
                                 let texts = crate::test_utils::lines_to_plain_strings(&lines);
-                                let turn_count = texts.iter().filter(|s| s.as_str() == "codex").count();
+                                let turn_count =
+                                    texts.iter().filter(|s| s.as_str() == "codex").count();
                                 codex_headers_per_turn[idx] += turn_count;
-                                crate::test_utils::append_lines_to_transcript(&lines, &mut transcript_per_turn[idx]);
+                                crate::test_utils::append_lines_to_transcript(
+                                    &lines,
+                                    &mut transcript_per_turn[idx],
+                                );
                             }
-                            crate::insert_history::insert_history_lines_to_writer(&mut terminal, &mut ansi, lines);
+                            crate::insert_history::insert_history_lines_to_writer(
+                                &mut terminal,
+                                &mut ansi,
+                                lines,
+                            );
                         }
                     }
                 }
@@ -775,7 +776,8 @@ async fn vt100_replay_binary_size_session_from_log() {
                             if let AppEvent::InsertHistory(lines) = app_ev {
                                 if let Some(idx) = current_turn_index {
                                     let texts = crate::test_utils::lines_to_plain_strings(&lines);
-                                    let turn_count = texts.iter().filter(|s| s.as_str() == "codex").count();
+                                    let turn_count =
+                                        texts.iter().filter(|s| s.as_str() == "codex").count();
                                     codex_headers_per_turn[idx] += turn_count;
                                     crate::test_utils::append_lines_to_transcript(
                                         &lines,
@@ -805,18 +807,17 @@ async fn vt100_replay_binary_size_session_from_log() {
 
     // Normalize curly quotes in the transcript and expected phrase.
     let transcript_norm = normalize_text(&transcript_per_turn[last_idx]);
-    let expected_phrase = normalize_text(
-        "Here’s what’s driving size in this workspace’s binaries.",
-    );
+    let expected_phrase =
+        normalize_text("Here’s what’s driving size in this workspace’s binaries.");
     let truncated_phrase = normalize_text("\n’s what’s driving size in this workspace’s binaries.");
     // Expect exactly one occurrence of the expected phrase in the transcript and no truncated copy
     // starting at the beginning of a line.
     let transcript_occurrences = transcript_norm.match_indices(&expected_phrase).count();
+
     assert_eq!(
         transcript_occurrences, 1,
         "expected exactly one occurrence of the size summary phrase in transcript, found {}.\ntranscript: {}",
-        transcript_occurrences,
-        transcript_per_turn[last_idx]
+        transcript_occurrences, transcript_per_turn[last_idx]
     );
 
     assert!(
@@ -850,14 +851,12 @@ async fn vt100_replay_binary_size_session_from_log() {
     let visible_norm = normalize_text(&visible);
     let visible_occurrences = visible_norm.match_indices(&expected_phrase).count();
 
-
     assert_eq!(
         visible_occurrences, 1,
         "expected exactly one occurrence of the size summary phrase on screen, found {}.\nvisible:\n{}",
-        visible_occurrences,
-        visible
+        visible_occurrences, visible
     );
-    
+
     assert!(
         !visible_norm.contains(&truncated_phrase),
         "found truncated duplicate of the size summary on screen.\nvisible:\n{}",
