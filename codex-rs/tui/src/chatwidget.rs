@@ -27,6 +27,7 @@ use codex_core::protocol::PatchApplyBeginEvent;
 use codex_core::protocol::TaskCompleteEvent;
 use codex_core::protocol::TokenUsage;
 use codex_core::protocol::TurnDiffEvent;
+use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
 use ratatui::buffer::Buffer;
@@ -569,14 +570,6 @@ impl ChatWidget<'_> {
     /// Forward file-search results to the bottom pane.
     pub(crate) fn apply_file_search_result(&mut self, query: String, matches: Vec<FileMatch>) {
         self.bottom_pane.on_file_search_result(query, matches);
-    }
-
-    pub(crate) fn on_esc(&mut self) -> bool {
-        if self.bottom_pane.is_task_running() {
-            self.interrupt_running_task();
-            return true;
-        }
-        false
     }
 
     /// Handle Ctrl-C key press.
