@@ -81,8 +81,8 @@ pub struct ApplyPatchArgs {
     pub hunks: Vec<Hunk>,
 }
 
-const APPLY_PATCH_COMMANDS: [&str; 2] = ["apply_patch", "applypatch"];
 pub fn maybe_parse_apply_patch(argv: &[String]) -> MaybeApplyPatch {
+    const APPLY_PATCH_COMMANDS: [&str; 2] = ["apply_patch", "applypatch"];
     match argv {
         [cmd, body] if APPLY_PATCH_COMMANDS.contains(&cmd.as_str()) => match parse_patch(body) {
             Ok(source) => MaybeApplyPatch::Body(source),
