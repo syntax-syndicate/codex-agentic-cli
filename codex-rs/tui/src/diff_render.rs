@@ -14,7 +14,7 @@ struct FileSummary {
     removed: usize,
 }
 
-pub fn create_diff_summary(
+pub(crate) fn create_diff_summary(
     title: &str,
     changes: HashMap<PathBuf, FileChange>,
 ) -> Vec<RtLine<'static>> {

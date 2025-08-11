@@ -1,5 +1,5 @@
-use crate::diff_render::create_diff_summary;
 use crate::colors::LIGHT_BLUE;
+use crate::diff_render::create_diff_summary;
 use crate::exec_command::relativize_to_home;
 use crate::exec_command::strip_bash_lc_and_escape;
 use crate::slash_command::SlashCommand;
